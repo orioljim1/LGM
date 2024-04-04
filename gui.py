@@ -13,10 +13,39 @@ import dearpygui.dearpygui as dpg
 
 import kiui
 from kiui.cam import OrbitCamera
+import os
 
+import torchvision
+import cv2
+from PIL import Image
+import torchvision.transforms as T
+def apply_colormap(gray, minmax=None, cmap=cv2.COLORMAP_JET):
+    """
+    Input:
+        gray: gray image, tensor/numpy, (H, W)
+    Output:
+        depth: (3, H, W), tensor
+    """
+    if type(gray) is not np.ndarray:
+        gray = gray.detach().cpu().numpy().astype(np.float32)
+    gray = gray.squeeze()
+    assert len(gray.shape) == 2
+    x = np.nan_to_num(gray)  # change nan to 0
+    if minmax is None:
+        mi = np.min(x)  # get minimum positive value
+        ma = np.max(x)
+    else:
+        mi, ma = minmax
+    x = (x - mi) / (ma - mi + 1e-8)  # normalize to 0~1
+    x = (255 * x).astype(np.uint8)
+    x_ = Image.fromarray(cv2.applyColorMap(x, cmap))
+    x_ = T.ToTensor()(x_)  # (3, H, W)
+    return x_
 
 class GUI:
     def __init__(self, opt: Options):
+
+        os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
         self.opt = opt
         self.W = opt.output_size
         self.H = opt.output_size
@@ -73,9 +102,22 @@ class GUI:
             cam_pos = - cam_poses[:, :3, 3] # [V, 3]
             
             buffer_image = self.renderer.render(self.gaussians.unsqueeze(0), cam_view.unsqueeze(0), cam_view_proj.unsqueeze(0), cam_pos.unsqueeze(0), scale_modifier=self.gaussain_scale_factor)[self.mode]
+            
+            if self.mode in ['depth']:
+                buffer_image = buffer_image[0]
+                #depth_map_pil = T.ToPILImage()(buffer_image)
+                #depth_map_pil.save("example_saved.jpg")
+                buffer_image = apply_colormap(buffer_image)
+                '''
+                torchvision.utils.save_image(
+                    apply_colormap(buffer_image),
+                    "depth_rendered_depth.png",
+                )
+                '''          
             buffer_image = buffer_image.squeeze(1) # [B, C, H, W]
 
-            if self.mode in ['alpha']:
+            
+            if self.mode in ['alpha'] or self.mode in ['depth'] :
                 buffer_image = buffer_image.repeat(1, 3, 1, 1)
                 
             buffer_image = F.interpolate(
@@ -167,7 +209,7 @@ class GUI:
                     self.need_update = True
 
                 dpg.add_combo(
-                    ("image", "alpha"),
+                    ("image", "alpha","depth"),
                     label="mode",
                     default_value=self.mode,
                     callback=callback_change_mode,

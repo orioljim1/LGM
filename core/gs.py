@@ -4,10 +4,15 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 from diff_gaussian_rasterization import (
     GaussianRasterizationSettings,
     GaussianRasterizer,
 )
+
+#from diff_gaussian_rasterization_depth import GaussianRasterizationSettings, GaussianRasterizer
+#from diff_gaussian_rasterization_depth_acc import GaussianRasterizationSettings, GaussianRasterizer
+
 
 from core.options import Options
 
@@ -39,6 +44,7 @@ class GaussianRenderer:
         # loop of loop...
         images = []
         alphas = []
+        depths = []
         for b in range(B):
 
             # pos, opacity, scale, rotation, shs
@@ -88,6 +94,7 @@ class GaussianRenderer:
 
                 images.append(rendered_image)
                 alphas.append(rendered_alpha)
+                depths.append(rendered_depth)
 
         images = torch.stack(images, dim=0).view(B, V, 3, self.opt.output_size, self.opt.output_size)
         alphas = torch.stack(alphas, dim=0).view(B, V, 1, self.opt.output_size, self.opt.output_size)
@@ -95,6 +102,7 @@ class GaussianRenderer:
         return {
             "image": images, # [B, V, 3, H, W]
             "alpha": alphas, # [B, V, 1, H, W]
+            "depth": depths
         }
 
 
