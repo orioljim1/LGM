@@ -14,8 +14,6 @@ import dearpygui.dearpygui as dpg
 import kiui
 from kiui.cam import OrbitCamera
 import os
-
-import torchvision
 import cv2
 from PIL import Image
 import torchvision.transforms as T
@@ -40,6 +38,28 @@ def apply_colormap(gray, minmax=None, cmap=cv2.COLORMAP_JET):
     x = (255 * x).astype(np.uint8)
     x_ = Image.fromarray(cv2.applyColorMap(x, cmap))
     x_ = T.ToTensor()(x_)  # (3, H, W)
+    return x_
+
+def apply_gray(gray, minmax=None, cmap=cv2.COLORMAP_JET):
+    """
+    Input:
+        gray: gray image, tensor/numpy, (H, W)
+    Output:
+        depth: (3, H, W), tensor
+    """
+    if type(gray) is not np.ndarray:
+        gray = gray.detach().cpu().numpy().astype(np.float32)
+    gray = gray.squeeze()
+    assert len(gray.shape) == 2
+    x = np.nan_to_num(gray)  # change nan to 0
+    if minmax is None:
+        mi = np.min(x)  # get minimum positive value
+        ma = np.max(x)
+    else:
+        mi, ma = minmax
+    x = (x - mi) / (ma - mi + 1e-8)  # normalize to 0~1
+    x = (255 * x).astype(np.uint8)
+    x_ = T.ToTensor()(x)  # (3, H, W)
     return x_
 
 class GUI:
@@ -102,31 +122,35 @@ class GUI:
             cam_pos = - cam_poses[:, :3, 3] # [V, 3]
             
             buffer_image = self.renderer.render(self.gaussians.unsqueeze(0), cam_view.unsqueeze(0), cam_view_proj.unsqueeze(0), cam_pos.unsqueeze(0), scale_modifier=self.gaussain_scale_factor)[self.mode]
-            
-            if self.mode in ['depth']:
+            bufffers_ = self.renderer.render(self.gaussians.unsqueeze(0), cam_view.unsqueeze(0), cam_view_proj.unsqueeze(0), cam_pos.unsqueeze(0), scale_modifier=self.gaussain_scale_factor)
+            if self.mode in ['depth', 'Heatmap depth']:
                 buffer_image = buffer_image[0]
-                #depth_map_pil = T.ToPILImage()(buffer_image)
-                #depth_map_pil.save("example_saved.jpg")
-                buffer_image = apply_colormap(buffer_image)
                 '''
+                depth_map_pil = T.ToPILImage()(buffer_image)
+                depth_map_pil.save("bw_depth_example.jpg")
                 torchvision.utils.save_image(
                     apply_colormap(buffer_image),
-                    "depth_rendered_depth.png",
+                    "colormap_depth_example.png",
                 )
-                '''          
+                '''
+                if self.mode == 'Heatmap depth': buffer_image = apply_colormap(buffer_image)
+                else: buffer_image = apply_gray(buffer_image)
+
+            #if self.mode not in ['depth']:
             buffer_image = buffer_image.squeeze(1) # [B, C, H, W]
 
+            if self.mode not in ['depth', 'Heatmap depth']:
+                if self.mode in ['alpha']:
+                    buffer_image = buffer_image.repeat(1, 3, 1, 1)
+                    
+                buffer_image = F.interpolate(
+                    buffer_image,
+                    size=(self.H, self.W),
+                    mode="bilinear",
+                    align_corners=False,
+                ).squeeze(0)
             
-            if self.mode in ['alpha'] or self.mode in ['depth'] :
-                buffer_image = buffer_image.repeat(1, 3, 1, 1)
-                
-            buffer_image = F.interpolate(
-                buffer_image,
-                size=(self.H, self.W),
-                mode="bilinear",
-                align_corners=False,
-            ).squeeze(0)
-
+            #if self.mode not in ['depth']:
             self.buffer_image = (
                 buffer_image.permute(1, 2, 0)
                 .contiguous()
@@ -136,6 +160,8 @@ class GUI:
                 .cpu()
                 .numpy()
             )
+            #else:
+            #self.buffer_image = buffer_image
 
             self.need_update = False
 
@@ -209,7 +235,7 @@ class GUI:
                     self.need_update = True
 
                 dpg.add_combo(
-                    ("image", "alpha","depth"),
+                    ("image", "alpha","depth", "Heatmap depth"),
                     label="mode",
                     default_value=self.mode,
                     callback=callback_change_mode,

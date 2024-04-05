@@ -102,7 +102,8 @@ class GaussianRenderer:
         return {
             "image": images, # [B, V, 3, H, W]
             "alpha": alphas, # [B, V, 1, H, W]
-            "depth": depths
+            "depth": depths,
+            "Heatmap depth": depths
         }
 
 
